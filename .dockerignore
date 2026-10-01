@@ -1,0 +1,18 @@
+node_modules
+dist
+.git
+.gitignore
+.vscode
+.idea
+*.log
+.DS_Store
+
+# Settings are injected at container start, so local .env files must not be baked in.
+.env
+.env.*
+!.env.example
+
+Dockerfile
+docker-compose.yml
+.dockerignore
+README.md

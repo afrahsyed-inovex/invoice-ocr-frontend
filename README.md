@@ -34,7 +34,8 @@ Other scripts: `npm run build`, `npm run preview`, `npm run lint`.
 | `VITE_USMAN_API_URL`      | `http://localhost:8001` | Usman's backend base URL                                 |
 | `VITE_REQUEST_TIMEOUT_MS` | `60000`                 | Axios request timeout in milliseconds                    |
 
-Vite reads `.env` only when it starts, so **restart `npm run dev` after editing it**.
+Vite reads `.env` only when it starts, so **restart `npm run dev` after editing it**. For Docker, see
+[Running with Docker](#running-with-docker).
 
 ## How mock mode works
 
@@ -72,11 +73,16 @@ preview, and shows its extracted data. Use it to demo the UI without a real invo
    Each mapper has a comment at the top describing the response format it currently expects. Any response
    field the mapper doesn't recognise is shown in the **Other fields** card, so you can see what still needs mapping.
 4. **Optionally update the mocks** in `src/mock/` to match the real format, so mock mode stays realistic.
-5. **Enable CORS on the backend.** The browser blocks the request unless the backend allows the dev origin
-   `http://localhost:5173`. With FastAPI, for example:
+5. **Enable CORS on the backend.** The browser blocks the request unless the backend allows the frontend's
+   origin: `http://localhost:5173` for `npm run dev`, and `http://localhost:8080` for Docker. With FastAPI, for example:
    ```python
    from fastapi.middleware.cors import CORSMiddleware
-   app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_methods=["*"], allow_headers=["*"])
+   app.add_middleware(
+       CORSMiddleware,
+       allow_origins=["http://localhost:5173", "http://localhost:8080"],
+       allow_methods=["*"],
+       allow_headers=["*"],
+   )
    ```
 
 UI components never read backend field names. They only use the internal shape described below.
@@ -110,9 +116,65 @@ endpoint), 413, 400/415/422 (using `detail`/`message` from the response body whe
 responses that are not valid JSON. A mapper that throws is reported as "unexpected format", and the full
 details are logged.
 
+## Running with Docker
+
+The image builds the app with Node and serves the static files with nginx (about 50 MB). It needs Docker
+Desktop, or any Docker engine with Compose v2.
+
+```bash
+docker compose up -d --build     # http://localhost:8080
+docker compose logs -f           # view logs
+docker compose down              # stop
+```
+
+### Configuration
+
+The container reads the same variables as `.env`. Compose picks up `.env` automatically, and
+`docker-compose.yml` has defaults for every variable. `FRONTEND_PORT` changes the host port (default `8080`).
+
+**Settings are applied when the container starts, not when the image is built.** At startup,
+`docker/40-write-runtime-config.sh` writes the environment variables into `/config.js`, and the app reads that
+file before it boots. To switch backends or turn off mock mode, change `.env` and run `docker compose up -d`.
+No rebuild is needed.
+
+Without Compose:
+
+```bash
+docker build -t invoice-ocr-frontend .
+docker run -d -p 8080:80 -e VITE_USE_MOCK=false -e VITE_MUNHIM_API_URL=http://localhost:8000 invoice-ocr-frontend
+```
+
+In `npm run dev`, `public/config.js` is an empty placeholder, so the values from `.env` are used as before.
+
+### Reaching the backends from Docker
+
+The API requests are sent by **your browser**, not by the container. `http://localhost:8000` therefore means
+port 8000 on your machine, and the backends running locally work as they are. Two things to remember:
+
+- Add `http://localhost:8080` to each backend's CORS allowed origins (see "Connecting a real backend").
+- If the backends are put in containers later, publish their ports to the host (for example `8000:8000`).
+  Docker service names such as `http://munhim-backend:8000` won't work, because the browser can't resolve them.
+
+### What's in the image
+
+| File                                  | Purpose                                                            |
+| ------------------------------------- | ------------------------------------------------------------------ |
+| `Dockerfile`                          | Multi-stage: `node:22-alpine` builds, `nginx:1.27-alpine` serves   |
+| `docker-compose.yml`                  | One `frontend` service with port and environment settings          |
+| `docker/nginx.conf`                   | Routing for `/munhim` and `/usman`, gzip, caching, `/healthz`      |
+| `docker/security-headers.conf`        | Security headers included in every nginx location                  |
+| `docker/40-write-runtime-config.sh`   | Writes `/config.js` from environment variables at startup          |
+| `.dockerignore`                       | Keeps `node_modules`, `dist` and `.env` out of the build context   |
+
+Hashed files in `/assets/` are cached for a year. `index.html` and `config.js` are never cached, so a new
+deployment or a settings change shows up on the next page load. The container reports itself healthy through
+Docker's `HEALTHCHECK`, which calls `/healthz`.
+
 ## Project structure
 
 ```
+docker/         nginx.conf, security-headers.conf, 40-write-runtime-config.sh
+public/         config.js (runtime settings placeholder), favicon.svg
 src/
   api/          config.js (env, endpoint, field name), apiError.js, httpClient.js,
                 createExtractionApi.js (shared mock/real logic), munhimApi.js, usmanApi.js
