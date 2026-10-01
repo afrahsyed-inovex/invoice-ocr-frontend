@@ -1,10 +1,8 @@
 import { ScanText } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
-import { USE_MOCK } from '../api/config';
 import { NAV_ITEMS } from '../routes';
 import { cn } from '../utils/cn';
 import ThemeToggle from './ThemeToggle';
-import Badge from './ui/Badge';
 
 export default function Navbar() {
   return (
@@ -39,11 +37,6 @@ export default function Navbar() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
-          {USE_MOCK && (
-            <Badge tone="warning" title="Responses come from bundled mock data (VITE_USE_MOCK=true)">
-              Mock mode
-            </Badge>
-          )}
           <ThemeToggle />
         </div>
       </div>

@@ -1,99 +1,111 @@
-import { createEmptyInvoice, resolveStatus } from './invoiceShape';
-import {
-  collectUnknownFields,
-  compactConfidence,
-  isPlainObject,
-  toConfidence,
-  toNumber,
-  toText,
-} from './mapperUtils';
+import { REVIEW_STATUS } from './invoiceShape';
+import { isPlainObject, toArray, toNumber, toObject, toText } from './mapperUtils';
 
 /*
- * Expected (provisional) Usman response — every field carries its own confidence:
- * {
- *   status: "succeeded" | "partial" | "failed",
- *   fields: { InvoiceId: { value, confidence }, VendorName: { value, confidence }, ... },
- *   line_items: [{ Description: { value, confidence }, Quantity, UnitPrice, Amount }],
- *   ...metadata (model_version, processing_time_ms, ...)
- * }
- * Update this file when the real contract is final; the UI will not need to change.
+ * Usman's contract: app/schemas.py (InvoiceData), returned by POST /v1/extract.
+ * Amounts and quantities are JSON numbers, dates are ISO strings, missing data is null.
  */
 
-const KNOWN_TOP_LEVEL_KEYS = ['status', 'fields', 'line_items'];
-
-/** Usman field name -> internal field path and value type. */
-const FIELD_MAP = {
-  InvoiceId: { path: 'invoiceNumber', type: 'text' },
-  InvoiceDate: { path: 'invoiceDate', type: 'text' },
-  DueDate: { path: 'dueDate', type: 'text' },
-  Currency: { path: 'currency', type: 'text' },
-  VendorName: { path: 'vendor.name', type: 'text' },
-  VendorAddress: { path: 'vendor.address', type: 'text' },
-  VendorEmail: { path: 'vendor.email', type: 'text' },
-  VendorPhone: { path: 'vendor.phone', type: 'text' },
-  CustomerName: { path: 'customer.name', type: 'text' },
-  CustomerAddress: { path: 'customer.address', type: 'text' },
-  SubTotal: { path: 'subtotal', type: 'number' },
-  TotalTax: { path: 'tax', type: 'number' },
-  InvoiceTotal: { path: 'total', type: 'number' },
+const STATUS_MAP = {
+  ok: REVIEW_STATUS.OK,
+  needs_review: REVIEW_STATUS.NEEDS_REVIEW,
 };
 
-const STATUS_MAP = { succeeded: 'success', success: 'success', partial: 'partial', failed: 'failed' };
-
-/** Fields arrive as { value, confidence }, but a bare value is tolerated too. */
-function readField(field) {
-  if (isPlainObject(field) && 'value' in field) {
-    return { value: field.value, confidence: toConfidence(field.confidence) };
-  }
-  return { value: field, confidence: null };
+/**
+ * meta.llm_fields uses his paths ("invoice.due_date", "summary.amount_paid", "items");
+ * this only renames them to the internal field names so the UI can find the field.
+ */
+function toInternalPath(path) {
+  const camel = (value) => value.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+  const [section, field] = String(path).split('.');
+  const sectionMap = { invoice: 'details', summary: 'totals', items: 'lineItems' };
+  const fieldMap = { date: 'invoiceDate' };
+  const internalSection = sectionMap[section] ?? section;
+  if (!field) return internalSection;
+  return `${internalSection}.${fieldMap[field] ?? camel(field)}`;
 }
 
-function convert(value, type) {
-  return type === 'number' ? toNumber(value) : toText(value);
-}
-
-function assignPath(target, path, value) {
-  const [head, tail] = path.split('.');
-  if (tail) target[head] = { ...target[head], [tail]: value };
-  else target[head] = value;
-}
-
-function mapLineItem(item) {
-  const source = isPlainObject(item) ? item : {};
+function mapParty(party) {
+  const source = toObject(party);
   return {
-    description: toText(readField(source.Description).value),
-    quantity: toNumber(readField(source.Quantity).value),
-    unitPrice: toNumber(readField(source.UnitPrice).value),
-    amount: toNumber(readField(source.Amount).value),
+    name: toText(source.name),
+    address: toText(source.address),
+    taxId: toText(source.tax_id),
+    iban: toText(source.iban),
+    email: toText(source.email),
   };
 }
 
-export function normalizeUsmanInvoice(raw) {
-  if (!isPlainObject(raw)) {
-    throw new TypeError(`Expected a JSON object from Usman's backend, received ${typeof raw}.`);
+function mapLineItem(item) {
+  const source = toObject(item);
+  return {
+    position: toNumber(source.line),
+    description: toText(source.description),
+    quantity: toNumber(source.quantity),
+    unit: toText(source.unit),
+    unitPrice: toNumber(source.unit_price),
+    vatPercent: toNumber(source.vat_percent),
+    netAmount: toNumber(source.net_amount),
+    grossAmount: toNumber(source.gross_amount),
+  };
+}
+
+function mapPayment(payment) {
+  const source = toObject(payment);
+  return {
+    beneficiary: toText(source.beneficiary),
+    bank: toText(source.bank),
+    iban: toText(source.iban),
+    bic: toText(source.bic),
+    accountNumber: toText(source.account_number),
+    reference: toText(source.reference),
+  };
+}
+
+export function normalizeUsmanInvoice(data) {
+  if (!isPlainObject(data) || !isPlainObject(data.meta)) {
+    throw new TypeError("Expected an InvoiceData object (with meta) from Usman's backend.");
   }
 
-  const fields = isPlainObject(raw.fields) ? raw.fields : {};
-  const invoice = createEmptyInvoice();
-  const confidence = {};
-  const unknownFields = {};
+  const invoice = toObject(data.invoice);
+  const summary = toObject(data.summary);
+  const meta = data.meta;
 
-  Object.entries(fields).forEach(([fieldName, field]) => {
-    const { value, confidence: score } = readField(field);
-    const mapping = FIELD_MAP[fieldName];
-
-    if (!mapping) {
-      unknownFields[fieldName] = value;
-      return;
-    }
-    assignPath(invoice, mapping.path, convert(value, mapping.type));
-    confidence[mapping.path] = score;
-  });
-
-  invoice.lineItems = Array.isArray(raw.line_items) ? raw.line_items.map(mapLineItem) : [];
-  invoice.confidence = compactConfidence(confidence);
-  invoice.extra = { ...unknownFields, ...collectUnknownFields(raw, KNOWN_TOP_LEVEL_KEYS) };
-
-  const reportedStatus = STATUS_MAP[String(raw.status ?? '').toLowerCase()];
-  return { ...invoice, status: resolveStatus(invoice, reportedStatus) };
+  return {
+    status: STATUS_MAP[meta.status] ?? null,
+    statusLabel: toText(meta.status),
+    error: null,
+    confidence: toNumber(meta.confidence),
+    details: {
+      invoiceNumber: toText(invoice.invoice_number),
+      invoiceDate: toText(invoice.date),
+      dueDate: toText(invoice.due_date),
+      currency: toText(invoice.currency),
+    },
+    seller: mapParty(data.seller),
+    client: mapParty(data.client),
+    lineItems: toArray(data.items).map(mapLineItem),
+    totals: {
+      subtotal: toNumber(summary.subtotal),
+      tax: toNumber(summary.tax),
+      taxRate: toNumber(summary.tax_rate),
+      discount: toNumber(summary.discount),
+      otherCharges: toArray(summary.other_charges).map((charge) => ({
+        label: toText(charge?.label),
+        amount: toNumber(charge?.amount),
+      })),
+      total: toNumber(summary.total),
+      amountPaid: toNumber(summary.amount_paid),
+      amountDue: toNumber(summary.amount_due),
+    },
+    payment: mapPayment(data.payment),
+    validation: [{ key: 'meta.warnings', items: toArray(meta.warnings).map(toText).filter(Boolean) }],
+    aiFilledFields: toArray(meta.llm_fields).map(toInternalPath),
+    processing: [
+      { label: 'engine', value: toText(meta.engine) },
+      { label: 'pages', value: toNumber(meta.pages) },
+      { label: 'processing_ms', value: toNumber(meta.processing_ms) },
+      { label: 'llm_used', value: typeof meta.llm_used === 'boolean' ? String(meta.llm_used) : null },
+    ],
+  };
 }

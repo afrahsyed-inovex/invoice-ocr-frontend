@@ -2,17 +2,14 @@ import { CircleAlert, UploadCloud } from 'lucide-react';
 import { useCallback, useId, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { cn } from '../utils/cn';
-import {
-  ACCEPTED_FILE_TYPES,
-  ACCEPTED_FORMATS_LABEL,
-  MAX_FILE_SIZE_MB,
-  getDropRejectionMessage,
-  validateFile,
-} from '../utils/fileValidation';
 import { createLogger } from '../utils/logger';
 
 const log = createLogger('upload');
 
+/**
+ * Drag-and-drop / click-to-browse for a single file. Type and size are not checked here:
+ * the backend validates the upload and its own error is shown.
+ */
 export default function UploadZone({ onFileAccepted, disabled = false }) {
   const [error, setError] = useState(null);
   const hintId = useId();
@@ -20,16 +17,15 @@ export default function UploadZone({ onFileAccepted, disabled = false }) {
 
   const handleDrop = useCallback(
     (acceptedFiles, rejections) => {
-      const [file] = acceptedFiles;
-      const message = rejections.length > 0 ? getDropRejectionMessage(rejections) : validateFile(file);
-
-      if (message) {
-        log.warn('File rejected', { message, files: [...acceptedFiles, ...rejections.map((r) => r.file)].map((f) => f.name) });
-        setError(message);
+      // With multiple: false, dropping several files rejects all of them.
+      if (rejections.length > 0 || acceptedFiles.length !== 1) {
+        log.warn('More than one file dropped', { count: acceptedFiles.length + rejections.length });
+        setError('Please upload one invoice at a time.');
         return;
       }
 
-      log.info('File accepted', { name: file.name, type: file.type, sizeBytes: file.size });
+      const [file] = acceptedFiles;
+      log.info('File selected', { name: file.name, type: file.type, sizeBytes: file.size });
       setError(null);
       onFileAccepted(file);
     },
@@ -38,7 +34,6 @@ export default function UploadZone({ onFileAccepted, disabled = false }) {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: handleDrop,
-    accept: ACCEPTED_FILE_TYPES,
     multiple: false,
     disabled,
   });
@@ -79,7 +74,7 @@ export default function UploadZone({ onFileAccepted, disabled = false }) {
           or <span className="font-medium text-brand-600 underline-offset-2 group-hover:underline dark:text-brand-400">click to browse</span>
         </p>
         <p id={hintId} className="mt-4 text-xs text-slate-400 dark:text-slate-500">
-          {ACCEPTED_FORMATS_LABEL} · up to {MAX_FILE_SIZE_MB} MB
+          One file at a time
         </p>
       </div>
 

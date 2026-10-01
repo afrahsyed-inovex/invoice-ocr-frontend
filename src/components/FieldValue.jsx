@@ -1,7 +1,7 @@
 import { cn } from '../utils/cn';
 
 /** Displays a formatted value; missing values render the muted "—" placeholder. */
-export default function FieldValue({ display, isMissing, isComplex, className }) {
+export default function FieldValue({ display, isMissing, className }) {
   if (isMissing) {
     return (
       <span className={cn('text-slate-400 dark:text-slate-500', className)}>
@@ -11,13 +11,8 @@ export default function FieldValue({ display, isMissing, isComplex, className })
     );
   }
 
-  if (isComplex) {
-    return (
-      <pre className="max-h-48 overflow-auto rounded-lg bg-slate-50 p-2 font-mono text-xs text-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
-        {display}
-      </pre>
-    );
-  }
-
-  return <span className={cn('break-words text-slate-900 dark:text-slate-100', className)}>{display}</span>;
+  // pre-line keeps the line breaks of multi-line addresses.
+  return (
+    <span className={cn('wrap-break-word whitespace-pre-line text-slate-900 dark:text-slate-100', className)}>{display}</span>
+  );
 }

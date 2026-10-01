@@ -1,115 +1,85 @@
-import { createEmptyInvoice, resolveStatus } from './invoiceShape';
-import {
-  collectUnknownFields,
-  compactConfidence,
-  isPlainObject,
-  toConfidence,
-  toNumber,
-  toText,
-} from './mapperUtils';
+import { REVIEW_STATUS } from './invoiceShape';
+import { isPlainObject, toArray, toNumber, toObject, toText } from './mapperUtils';
 
 /*
- * Expected (provisional) Munhim response — flat snake_case with a separate confidence map:
- * {
- *   invoice_no, invoice_date, due_date, currency,
- *   seller: { name, address, email, phone, ... }, buyer: { name, address, ... },
- *   items: [{ description, qty, unit_price, total }],
- *   subtotal, tax, total, status, confidence_scores: { invoice_no: 0.98, seller_name: 0.9, ... }
- * }
- * Update this file when the real contract is final; the UI will not need to change.
+ * Munhim's contract: invoice_pipeline/models.py (InvoiceRecord, schema_version "1.0").
+ * Money, quantities and VAT rates arrive as decimal strings ("1283.40"); dates are ISO.
+ * His issues / empty_fields / repairs are not shown in the cards (they remain in the Raw JSON tab).
  */
 
-const KNOWN_TOP_LEVEL_KEYS = [
-  'invoice_no',
-  'invoice_date',
-  'due_date',
-  'currency',
-  'seller',
-  'buyer',
-  'items',
-  'subtotal',
-  'tax',
-  'total',
-  'status',
-  'confidence_scores',
-];
-const KNOWN_SELLER_KEYS = ['name', 'address', 'email', 'phone'];
-const KNOWN_BUYER_KEYS = ['name', 'address'];
-
-/** Munhim confidence key -> internal field path. */
-const CONFIDENCE_KEY_MAP = {
-  invoice_no: 'invoiceNumber',
-  invoice_date: 'invoiceDate',
-  due_date: 'dueDate',
-  currency: 'currency',
-  seller_name: 'vendor.name',
-  seller_address: 'vendor.address',
-  seller_email: 'vendor.email',
-  seller_phone: 'vendor.phone',
-  buyer_name: 'customer.name',
-  buyer_address: 'customer.address',
-  subtotal: 'subtotal',
-  tax: 'tax',
-  total: 'total',
+const STATUS_MAP = {
+  clean: REVIEW_STATUS.OK,
+  needs_review: REVIEW_STATUS.NEEDS_REVIEW,
+  failed: REVIEW_STATUS.FAILED,
 };
 
-const STATUS_MAP = { ok: 'success', success: 'success', partial: 'partial', error: 'failed', failed: 'failed' };
+function mapParty(party) {
+  const source = toObject(party);
+  const addressLines = toArray(source.address_lines).map(toText).filter(Boolean);
+  return {
+    name: toText(source.name),
+    address: addressLines.length > 0 ? addressLines.join('\n') : null,
+    taxId: toText(source.tax_id),
+    iban: toText(source.iban),
+  };
+}
 
 function mapLineItem(item) {
-  const source = isPlainObject(item) ? item : {};
+  const source = toObject(item);
   return {
+    position: toNumber(source.no),
     description: toText(source.description),
-    quantity: toNumber(source.qty),
-    unitPrice: toNumber(source.unit_price),
-    amount: toNumber(source.total),
+    quantity: toNumber(source.quantity),
+    unit: toText(source.unit),
+    unitPrice: toNumber(source.net_price),
+    vatPercent: toNumber(source.vat_rate),
+    netAmount: toNumber(source.net_worth),
+    grossAmount: toNumber(source.gross_worth),
   };
 }
 
-function mapConfidence(scores) {
-  if (!isPlainObject(scores)) return {};
-  const mapped = Object.entries(CONFIDENCE_KEY_MAP).map(([sourceKey, fieldPath]) => [
-    fieldPath,
-    toConfidence(scores[sourceKey]),
-  ]);
-  return compactConfidence(Object.fromEntries(mapped));
+function mapVatRow(row) {
+  const source = toObject(row);
+  return {
+    vatRate: toNumber(source.vat_rate),
+    netAmount: toNumber(source.net_worth),
+    vat: toNumber(source.vat),
+    grossAmount: toNumber(source.gross_worth),
+  };
 }
 
-export function normalizeMunhimInvoice(raw) {
-  if (!isPlainObject(raw)) {
-    throw new TypeError(`Expected a JSON object from Munhim's backend, received ${typeof raw}.`);
+export function normalizeMunhimInvoice(record) {
+  if (!isPlainObject(record)) {
+    throw new TypeError(`Expected a JSON object from Munhim's backend, received ${typeof record}.`);
   }
+  const totals = toObject(record.totals);
 
-  const seller = isPlainObject(raw.seller) ? raw.seller : {};
-  const buyer = isPlainObject(raw.buyer) ? raw.buyer : {};
-
-  const invoice = {
-    ...createEmptyInvoice(),
-    invoiceNumber: toText(raw.invoice_no),
-    invoiceDate: toText(raw.invoice_date),
-    dueDate: toText(raw.due_date),
-    currency: toText(raw.currency),
-    vendor: {
-      name: toText(seller.name),
-      address: toText(seller.address),
-      email: toText(seller.email),
-      phone: toText(seller.phone),
+  return {
+    status: STATUS_MAP[record.status] ?? null,
+    statusLabel: toText(record.status),
+    error: toText(record.error),
+    confidence: null,
+    details: {
+      invoiceNumber: toText(record.invoice_number),
+      invoiceDate: toText(record.date_of_issue),
+      currency: toText(record.currency_symbol),
     },
-    customer: {
-      name: toText(buyer.name),
-      address: toText(buyer.address),
+    seller: mapParty(record.seller),
+    client: mapParty(record.client),
+    lineItems: toArray(record.items).map(mapLineItem),
+    totals: {
+      subtotal: toNumber(totals.net_worth),
+      tax: toNumber(totals.vat),
+      total: toNumber(totals.gross_worth),
     },
-    lineItems: Array.isArray(raw.items) ? raw.items.map(mapLineItem) : [],
-    subtotal: toNumber(raw.subtotal),
-    tax: toNumber(raw.tax),
-    total: toNumber(raw.total),
-    confidence: mapConfidence(raw.confidence_scores),
-    extra: {
-      ...collectUnknownFields(raw, KNOWN_TOP_LEVEL_KEYS),
-      ...collectUnknownFields(seller, KNOWN_SELLER_KEYS, 'vendor'),
-      ...collectUnknownFields(buyer, KNOWN_BUYER_KEYS, 'customer'),
-    },
+    vatBreakdown: toArray(record.summary_rows).map(mapVatRow),
+    validation: [],
+    aiFilledFields: [],
+    processing: [
+      { label: 'id', value: toText(record.id) },
+      { label: 'source_file', value: toText(record.source_file) },
+      { label: 'ocr_engine', value: toText(record.ocr_engine) },
+      { label: 'processed_at', value: toText(record.processed_at), kind: 'datetime' },
+    ],
   };
-
-  const reportedStatus = STATUS_MAP[String(raw.status ?? '').toLowerCase()];
-  return { ...invoice, status: resolveStatus(invoice, reportedStatus) };
 }

@@ -5,7 +5,7 @@
 set -eu
 
 CONFIG_FILE=/usr/share/nginx/html/config.js
-SETTINGS="VITE_USE_MOCK VITE_MUNHIM_API_URL VITE_USMAN_API_URL VITE_REQUEST_TIMEOUT_MS"
+SETTINGS="VITE_MUNHIM_API_URL VITE_USMAN_API_URL VITE_USMAN_API_KEY VITE_USMAN_LLM_MODE VITE_REQUEST_TIMEOUT_MS"
 
 # Escape backslashes and double quotes so each value is a valid JS string.
 escape() {

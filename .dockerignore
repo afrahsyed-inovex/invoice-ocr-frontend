@@ -12,6 +12,10 @@ dist
 .env.*
 !.env.example
 
+# The backends run on their own; they are not part of the frontend image.
+munhims-backend
+usmans-backend
+
 Dockerfile
 docker-compose.yml
 .dockerignore

@@ -1,21 +1,21 @@
 import axios from 'axios';
 import { API_ERROR_KIND, ApiError, toApiError } from './apiError';
-import { FILE_FIELD_NAME, REQUEST_TIMEOUT_MS, getExtractUrl } from './config';
+import { REQUEST_TIMEOUT_MS, buildUrl } from './config';
 
 const httpClient = axios.create({
   timeout: REQUEST_TIMEOUT_MS,
   headers: { Accept: 'application/json' },
 });
 
-/** POSTs the file as multipart/form-data and returns the parsed JSON body. */
-export async function postInvoiceFile(backend, file, { signal } = {}) {
-  const formData = new FormData();
-  formData.append(FILE_FIELD_NAME, file, file.name);
-
+/**
+ * Sends one request to a backend and returns the parsed JSON body.
+ * Every failure is converted to an ApiError with a user-facing message.
+ */
+export async function requestJson(backend, { method = 'GET', path, data, params, headers, signal }) {
   let response;
   try {
-    // No Content-Type header: the browser adds multipart/form-data with the correct boundary.
-    response = await httpClient.post(getExtractUrl(backend), formData, { signal });
+    // For FormData bodies no Content-Type is set: the browser adds the multipart boundary.
+    response = await httpClient.request({ method, url: buildUrl(backend, path), data, params, headers, signal });
   } catch (error) {
     throw toApiError(error, backend);
   }

@@ -1,14 +1,14 @@
-import { extractInvoice, getSampleInvoice, usmanBackend } from '../api/usmanApi';
-import InvoiceWorkspace from '../components/InvoiceWorkspace';
+import { USMAN_API } from '../api/config';
+import { extractInvoice } from '../api/usmanApi';
+import UploadExtractPage from '../components/UploadExtractPage';
 
 export default function UsmanPage() {
   return (
-    <InvoiceWorkspace
+    <UploadExtractPage
       title="Usman's extractor"
-      description="Upload an invoice image or PDF to extract vendor, customer, line items and totals using Usman's backend."
-      backend={usmanBackend}
+      description="Upload an invoice. Usman's backend runs Tesseract OCR with a layout parser and arithmetic checks, with an optional Gemini fallback."
+      backend={USMAN_API}
       extract={extractInvoice}
-      getSample={getSampleInvoice}
     />
   );
 }

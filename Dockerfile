@@ -22,10 +22,11 @@ RUN sed -i 's/\r$//' /docker-entrypoint.d/40-write-runtime-config.sh \
 COPY --from=build /app/dist /usr/share/nginx/html
 
 # Defaults; override with -e or docker-compose.yml.
-ENV VITE_USE_MOCK=true \
-    VITE_MUNHIM_API_URL=http://localhost:8000 \
+ENV VITE_MUNHIM_API_URL=http://localhost:8000 \
     VITE_USMAN_API_URL=http://localhost:8001 \
-    VITE_REQUEST_TIMEOUT_MS=60000
+    VITE_USMAN_API_KEY= \
+    VITE_USMAN_LLM_MODE= \
+    VITE_REQUEST_TIMEOUT_MS=120000
 
 EXPOSE 80
 

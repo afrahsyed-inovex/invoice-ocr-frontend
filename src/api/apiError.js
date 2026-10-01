@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { EXTRACT_ENDPOINT, REQUEST_TIMEOUT_MS, getExtractUrl } from './config';
+import { REQUEST_TIMEOUT_MS } from './config';
 
 export const API_ERROR_KIND = {
   NETWORK: 'network',
@@ -20,34 +20,26 @@ export class ApiError extends Error {
   }
 }
 
-/** Pulls a readable reason out of common error bodies (FastAPI, Flask, Express). */
+/**
+ * Both backends are FastAPI apps, so errors arrive as {"detail": "..."}, or as
+ * {"detail": [{msg, ...}]} for request validation errors.
+ */
 function extractErrorDetail(data) {
-  if (typeof data === 'string') return data.length <= 200 ? data.trim() : null;
-  if (!data || typeof data !== 'object') return null;
-
-  if (typeof data.detail === 'string') return data.detail;
-  if (Array.isArray(data.detail)) {
+  if (typeof data?.detail === 'string') return data.detail;
+  if (Array.isArray(data?.detail)) {
     return data.detail.map((item) => item?.msg).filter(Boolean).join('; ') || null;
   }
-  if (typeof data.message === 'string') return data.message;
-  if (typeof data.error === 'string') return data.error;
   return null;
 }
 
+/** The backend's own error, unchanged: status code plus its "detail" text. */
 function describeHttpError(status, detail, backend) {
-  const reason = detail ? `: ${detail}` : '.';
+  return `${backend.label}'s backend returned HTTP ${status}${detail ? `: ${detail}` : ''}`;
+}
 
-  if (status === 404) {
-    return `The extraction endpoint was not found (${getExtractUrl(backend)}). Check that ${backend.label}'s backend exposes ${EXTRACT_ENDPOINT}.`;
-  }
-  if (status === 413) return 'The file is too large for the backend to accept.';
-  if (status === 400 || status === 415 || status === 422) {
-    return `${backend.label}'s backend could not process this file${reason}`;
-  }
-  if (status >= 500) {
-    return `${backend.label}'s backend ran into an internal error (HTTP ${status}). Please try again in a moment.`;
-  }
-  return `The request was rejected (HTTP ${status})${reason}`;
+/** The message to show for any error thrown by the API layer. */
+export function getUserMessage(error) {
+  return error instanceof ApiError ? error.message : 'Something went wrong. Please try again.';
 }
 
 /** Converts any axios/network failure into an ApiError with a friendly message. */

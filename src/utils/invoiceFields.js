@@ -1,55 +1,65 @@
-import { formatDate, formatText, humanizeKey, isComplexValue, isMissing } from './format';
+import { formatDate, formatDateTime, formatText, isMissing } from './format';
 
 /*
- * Turns parts of the normalized invoice into display rows for FieldCard:
- * { id, label, display, isMissing, isComplex, confidence }.
+ * Turns sections of the normalized invoice into display rows for FieldCard:
+ * { id, label, display, isMissing, isAiFilled }.
+ * Only keys present on the section are shown: a backend that never provides a field
+ * (for example Munhim has no due date) simply has no row for it.
  */
 
-const DETAIL_FIELDS = [
-  { key: 'invoiceNumber', label: 'Invoice number' },
-  { key: 'invoiceDate', label: 'Invoice date', formatter: formatDate },
-  { key: 'dueDate', label: 'Due date', formatter: formatDate },
-  { key: 'currency', label: 'Currency' },
-];
-
-const PARTY_FIELD_LABELS = {
-  name: 'Name',
-  address: 'Address',
-  email: 'Email',
-  phone: 'Phone',
+export const DETAIL_LABELS = {
+  invoiceNumber: 'Invoice number',
+  invoiceDate: 'Invoice date',
+  dueDate: 'Due date',
+  currency: 'Currency',
 };
 
-function createRow({ id, label, value, confidence, formatter = formatText }) {
-  return {
-    id,
+export const PARTY_LABELS = {
+  name: 'Name',
+  address: 'Address',
+  taxId: 'Tax ID',
+  iban: 'IBAN',
+  email: 'Email',
+};
+
+export const PAYMENT_LABELS = {
+  beneficiary: 'Beneficiary',
+  bank: 'Bank',
+  iban: 'IBAN',
+  bic: 'BIC',
+  accountNumber: 'Account number',
+  reference: 'Reference',
+};
+
+const FORMATTERS = {
+  invoiceDate: formatDate,
+  dueDate: formatDate,
+};
+
+export function buildFieldRows(sectionKey, values, labels, aiFilledFields = []) {
+  if (!values) return [];
+  return Object.entries(labels)
+    .filter(([key]) => key in values)
+    .map(([key, label]) => {
+      const value = values[key];
+      const format = FORMATTERS[key] ?? formatText;
+      return {
+        id: `${sectionKey}.${key}`,
+        label,
+        display: format(value),
+        isMissing: isMissing(value),
+        isAiFilled: aiFilledFields.includes(`${sectionKey}.${key}`),
+      };
+    });
+}
+
+/** Processing details are already { label, value } pairs from the mapper. */
+export function buildProcessingRows(processing) {
+  return processing.map(({ label, value, kind }) => ({
+    id: `processing.${label}`,
     label,
-    display: formatter(value),
+    display: kind === 'datetime' ? formatDateTime(value) : formatText(value),
     isMissing: isMissing(value),
-    isComplex: isComplexValue(value),
-    confidence: confidence ?? null,
-  };
-}
-
-export function buildDetailRows(invoice) {
-  return DETAIL_FIELDS.map(({ key, label, formatter }) =>
-    createRow({ id: key, label, value: invoice[key], confidence: invoice.confidence[key], formatter }),
-  );
-}
-
-/** Renders every key of a party object, so fields added to the shape later show up automatically. */
-export function buildPartyRows(party, partyKey, confidence) {
-  return Object.entries(party).map(([key, value]) =>
-    createRow({
-      id: `${partyKey}.${key}`,
-      label: PARTY_FIELD_LABELS[key] ?? humanizeKey(key),
-      value,
-      confidence: confidence[`${partyKey}.${key}`],
-    }),
-  );
-}
-
-export function buildExtraRows(extra) {
-  return Object.entries(extra).map(([key, value]) =>
-    createRow({ id: `extra.${key}`, label: humanizeKey(key), value }),
-  );
+    isAiFilled: false,
+  }));
 }

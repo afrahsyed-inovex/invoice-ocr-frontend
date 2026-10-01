@@ -1,7 +1,5 @@
 import { ExternalLink, FileImage, FileText, ImageOff, ZoomIn, ZoomOut } from 'lucide-react';
 import { useState } from 'react';
-import { isPdfFile } from '../utils/fileValidation';
-import { formatFileSize } from '../utils/format';
 import { createLogger } from '../utils/logger';
 import Badge from './ui/Badge';
 import Button from './ui/Button';
@@ -59,7 +57,7 @@ function ImagePreview({ url, fileName, zoom }) {
     return (
       <div className={`${IMAGE_VIEWPORT_CLASSES} flex min-h-60 flex-col items-center justify-center gap-2 p-6 text-center text-sm text-slate-500 dark:text-slate-400`}>
         <ImageOff className="h-8 w-8" aria-hidden="true" />
-        This image could not be previewed, but it can still be processed.
+        This image could not be displayed by the browser (TIFF files, for example, are not supported).
       </div>
     );
   }
@@ -69,7 +67,7 @@ function ImagePreview({ url, fileName, zoom }) {
       {/* Width (not transform) scales the image, so the container's scrollbars follow the zoom. */}
       <img
         src={url}
-        alt={`Uploaded invoice: ${fileName}`}
+        alt={`Invoice: ${fileName}`}
         style={{ width: `${zoom * 100}%` }}
         className="mx-auto h-auto max-w-none rounded-md bg-white shadow-sm transition-[width] duration-150"
         onError={() => {
@@ -100,23 +98,35 @@ function PdfPreview({ url, fileName }) {
   );
 }
 
-/** Shows the uploaded file: zoomable image, or the browser's built-in PDF viewer. */
-export default function InvoiceViewer({ file, previewUrl }) {
+function NoPreview() {
+  return (
+    <div className={`${VIEWPORT_CLASSES} flex min-h-60 flex-col items-center justify-center gap-2 p-6 text-center text-sm text-slate-500 dark:text-slate-400`}>
+      <FileText className="h-8 w-8" aria-hidden="true" />
+      Word documents can&apos;t be previewed in the browser. The extracted data is shown alongside.
+    </div>
+  );
+}
+
+/**
+ * Shows an invoice: a zoomable image, the browser's built-in PDF viewer, or a placeholder.
+ * `url` can be a local object URL (uploads) or a backend URL (Munhim's /images).
+ *
+ * @param {{ name: string, url: string, kind: 'image' | 'pdf' | 'none', sizeLabel?: string }} props
+ */
+export default function InvoiceViewer({ name, url, kind, sizeLabel }) {
   const [zoom, setZoom] = useState(1);
-  const isPdf = isPdfFile(file);
+  const isImage = kind === 'image';
 
   return (
     <Card
-      title={file.name}
-      icon={isPdf ? FileText : FileImage}
-      actions={isPdf ? <Badge>{formatFileSize(file.size)}</Badge> : <ZoomControls zoom={zoom} onZoomChange={setZoom} />}
+      title={name}
+      icon={isImage ? FileImage : FileText}
+      actions={isImage ? <ZoomControls zoom={zoom} onZoomChange={setZoom} /> : sizeLabel && <Badge>{sizeLabel}</Badge>}
       bodyClassName="p-3"
     >
-      {isPdf ? (
-        <PdfPreview url={previewUrl} fileName={file.name} />
-      ) : (
-        <ImagePreview url={previewUrl} fileName={file.name} zoom={zoom} />
-      )}
+      {kind === 'pdf' && <PdfPreview url={url} fileName={name} />}
+      {kind === 'image' && <ImagePreview url={url} fileName={name} zoom={zoom} />}
+      {kind === 'none' && <NoPreview />}
     </Card>
   );
 }

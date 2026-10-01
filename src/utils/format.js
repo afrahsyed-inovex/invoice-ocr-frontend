@@ -1,16 +1,5 @@
 export const EMPTY_VALUE = '—';
 
-const CURRENCY_SYMBOLS = {
-  $: 'USD',
-  US$: 'USD',
-  '€': 'EUR',
-  '£': 'GBP',
-  '¥': 'JPY',
-  '₹': 'INR',
-  Rs: 'PKR',
-  'Rs.': 'PKR',
-};
-
 export function isMissing(value) {
   if (value === null || value === undefined) return true;
   if (typeof value === 'string') return value.trim() === '';
@@ -18,28 +7,26 @@ export function isMissing(value) {
   return false;
 }
 
-/** Turns "USD", "usd" or "$" into an ISO 4217 code; returns null when unknown. */
-export function toCurrencyCode(currency) {
-  if (typeof currency !== 'string') return null;
-  const trimmed = currency.trim();
-  if (/^[a-z]{3}$/i.test(trimmed)) return trimmed.toUpperCase();
-  return CURRENCY_SYMBOLS[trimmed] ?? null;
-}
+const formatAmount = (value) =>
+  new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 
+/**
+ * Usman sends ISO 4217 codes ("CAD"), formatted with Intl so "CA$" and "$" stay distinct.
+ * Munhim sends only the printed symbol ("$"), shown as-is: which dollar it is can't be known.
+ */
 export function formatMoney(value, currency) {
   if (isMissing(value)) return EMPTY_VALUE;
   if (typeof value !== 'number') return String(value);
 
-  const code = toCurrencyCode(currency);
-  const options = code
-    ? { style: 'currency', currency: code, currencyDisplay: 'narrowSymbol' }
-    : { minimumFractionDigits: 2, maximumFractionDigits: 2 };
-
-  try {
-    return new Intl.NumberFormat(undefined, options).format(value);
-  } catch {
-    return value.toFixed(2);
+  const marker = typeof currency === 'string' ? currency.trim() : '';
+  if (/^[A-Z]{3}$/.test(marker)) {
+    try {
+      return new Intl.NumberFormat(undefined, { style: 'currency', currency: marker }).format(value);
+    } catch {
+      return `${formatAmount(value)} ${marker}`;
+    }
   }
+  return marker ? `${marker}${formatAmount(value)}` : formatAmount(value);
 }
 
 export function formatQuantity(value) {
@@ -62,34 +49,27 @@ export function formatDate(value) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date);
 }
 
+export function formatDateTime(value) {
+  if (isMissing(value)) return EMPTY_VALUE;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+}
+
 export function formatText(value) {
   if (isMissing(value)) return EMPTY_VALUE;
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-  if (Array.isArray(value) && value.every((item) => item === null || typeof item !== 'object')) {
-    return value.join(', ');
-  }
-  if (typeof value === 'object') return JSON.stringify(value, null, 2);
   return String(value);
 }
 
-export function isComplexValue(value) {
-  if (Array.isArray(value)) return value.some((item) => item !== null && typeof item === 'object');
-  return value !== null && typeof value === 'object';
+/** Percentages arrive as plain numbers: 10 means 10 %. */
+export function formatPercent(value) {
+  if (isMissing(value)) return EMPTY_VALUE;
+  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value)}%`;
 }
 
 export function formatConfidence(confidence) {
-  return `${Math.round(confidence * 100)}%`;
-}
-
-/** "payment_terms", "PaymentTerms" and "paymentTerms" all become "Payment terms". */
-export function humanizeKey(key) {
-  const words = String(key)
-    .replace(/[_\-.]+/g, ' ')
-    .replace(/([a-z\d])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-    .trim()
-    .toLowerCase();
-  return words.charAt(0).toUpperCase() + words.slice(1);
+  // Keeps the backend value exactly (0.648 -> "64.8%"), no rounding.
+  return `${Number((confidence * 100).toFixed(10))}%`;
 }
 
 export function formatFileSize(bytes) {

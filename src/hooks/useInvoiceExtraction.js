@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ApiError } from '../api/apiError';
+import { getUserMessage } from '../api/apiError';
 import { createLogger } from '../utils/logger';
 
 const log = createLogger('extraction');
@@ -11,80 +11,63 @@ export const EXTRACTION_STATUS = {
   ERROR: 'error',
 };
 
-const INITIAL_STATE = { status: EXTRACTION_STATUS.IDLE, file: null, invoice: null, error: null };
-
-function toUserMessage(error) {
-  return error instanceof ApiError
-    ? error.message
-    : 'Something went wrong while processing the invoice. Please try again.';
-}
+const INITIAL_STATE = { status: EXTRACTION_STATUS.IDLE, file: null, result: null, error: null };
 
 /**
- * Runs an extraction and tracks its lifecycle. Starting a new run (or resetting/unmounting)
- * aborts the previous one, so a slow response can never overwrite newer state.
+ * Runs an upload-and-extract request and tracks its lifecycle. Starting a new run (or
+ * resetting/unmounting) aborts the previous one, so a slow response can never overwrite newer state.
  *
- * @param {(file: File, options: { signal: AbortSignal }) => Promise<object>} extract
+ * @param {(file: File, options: { signal: AbortSignal }) => Promise<{ invoice: object, raw: object }>} extract
  */
 export function useInvoiceExtraction(extract) {
   const [state, setState] = useState(INITIAL_STATE);
   const controllerRef = useRef(null);
-  const lastJobRef = useRef(null);
+  const lastFileRef = useRef(null);
 
   const abortPending = useCallback(() => {
     controllerRef.current?.abort();
     controllerRef.current = null;
   }, []);
 
-  const runJob = useCallback(
-    async (job) => {
+  const processFile = useCallback(
+    async (file) => {
       abortPending();
       const controller = new AbortController();
       controllerRef.current = controller;
-      lastJobRef.current = job;
+      lastFileRef.current = file;
 
-      setState({ status: EXTRACTION_STATUS.LOADING, file: job.file, invoice: null, error: null });
-      log.info('Upload started', { name: job.file.name, sizeBytes: job.file.size });
+      setState({ status: EXTRACTION_STATUS.LOADING, file, result: null, error: null });
+      log.info('Upload started', { name: file.name, sizeBytes: file.size });
 
       try {
-        const invoice = await job.run({ signal: controller.signal });
+        const result = await extract(file, { signal: controller.signal });
         if (controller.signal.aborted) return;
 
-        log.info('Extraction finished', { status: invoice.status, lineItems: invoice.lineItems.length });
-        setState({ status: EXTRACTION_STATUS.SUCCESS, file: job.file, invoice, error: null });
+        log.info('Extraction finished', { status: result.invoice.status, lineItems: result.invoice.lineItems.length });
+        setState({ status: EXTRACTION_STATUS.SUCCESS, file, result, error: null });
       } catch (error) {
         if (controller.signal.aborted) return;
 
         log.error('Extraction failed', error);
-        setState({ status: EXTRACTION_STATUS.ERROR, file: job.file, invoice: null, error: toUserMessage(error) });
+        setState({ status: EXTRACTION_STATUS.ERROR, file, result: null, error: getUserMessage(error) });
       } finally {
         if (controllerRef.current === controller) controllerRef.current = null;
       }
     },
-    [abortPending],
-  );
-
-  const processFile = useCallback(
-    (file) => runJob({ file, run: (options) => extract(file, options) }),
-    [extract, runJob],
-  );
-
-  /** Runs a sample from getSampleInvoice(): `{ file, extract(options) }`. */
-  const processSample = useCallback(
-    (sample) => runJob({ file: sample.file, run: sample.extract }),
-    [runJob],
+    [abortPending, extract],
   );
 
   const retry = useCallback(() => {
-    if (lastJobRef.current) runJob(lastJobRef.current);
-  }, [runJob]);
+    if (lastFileRef.current) processFile(lastFileRef.current);
+  }, [processFile]);
 
   const reset = useCallback(() => {
     abortPending();
-    lastJobRef.current = null;
+    lastFileRef.current = null;
     setState(INITIAL_STATE);
   }, [abortPending]);
 
   useEffect(() => abortPending, [abortPending]);
 
-  return { ...state, processFile, processSample, retry, reset };
+  return { ...state, processFile, retry, reset };
 }
