@@ -9,10 +9,14 @@ function getSteps(backendLabel) {
   ];
 }
 
-/** The starting screen of an upload page: upload area and a short how-it-works strip. */
-export default function IdleView({ backendLabel, onFileAccepted }) {
+/**
+ * The starting screen of an upload page: optional backend options (e.g. Usman's ?llm=),
+ * the upload area and a short how-it-works strip.
+ */
+export default function IdleView({ backendLabel, onFileAccepted, options }) {
   return (
     <div className="animate-fade-in mx-auto max-w-3xl">
+      {options && <div className="mb-5">{options}</div>}
       <div className="rounded-3xl border border-slate-200/80 bg-white/70 p-2 shadow-xl shadow-slate-200/50 backdrop-blur-sm dark:border-slate-800 dark:bg-slate-900/60 dark:shadow-none">
         <UploadZone onFileAccepted={onFileAccepted} />
       </div>

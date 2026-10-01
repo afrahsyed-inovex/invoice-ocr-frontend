@@ -19,7 +19,7 @@ import Button from './ui/Button';
  * Upload → preview → extracted data, shared by both backends. Pages only pass their
  * backend config and its `extract(file, { signal })` function.
  */
-export default function UploadExtractPage({ title, description, backend, extract }) {
+export default function UploadExtractPage({ title, description, backend, extract, uploadOptions }) {
   const { status, file, result, error, processFile, retry, reset } = useInvoiceExtraction(extract);
   const { previewUrl, showFile, clearPreview } = useFilePreview();
 
@@ -47,7 +47,7 @@ export default function UploadExtractPage({ title, description, backend, extract
       <PageHeader title={title} description={description} />
 
       {status === EXTRACTION_STATUS.IDLE ? (
-        <IdleView backendLabel={backend.label} onFileAccepted={handleFile} />
+        <IdleView backendLabel={backend.label} onFileAccepted={handleFile} options={uploadOptions} />
       ) : (
         <SplitView
           viewer={

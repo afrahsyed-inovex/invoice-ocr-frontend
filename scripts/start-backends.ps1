@@ -22,15 +22,18 @@ Set-Location '$munhimDir'
 .venv\Scripts\python -m uvicorn app:app --app-dir '$adapterDir' --host 127.0.0.1 --port 8000
 "@
 
+# His settings (API_KEYS, CORS_ORIGINS, GEMINI_API_KEY, LLM_MODE, ...) come from his .env, as his
+# README describes. Only Windows-specific values are set here; anything set here would override .env.
+if (-not (Test-Path (Join-Path $usmanDir '.env'))) {
+    Copy-Item (Join-Path $usmanDir '.env.example') (Join-Path $usmanDir '.env')
+    Write-Warning "Created $usmanDir\.env from .env.example. Set API_PORT, CORS_ORIGINS and GEMINI_API_KEY in it."
+}
+
 # His code expects Linux: tesseract on PATH and the fcntl module (provided by windows-shims).
 $usman = @"
 Set-Location '$usmanDir'
 `$env:PATH = '$tesseractDir;' + `$env:PATH
 `$env:PYTHONPATH = '$shimDir'
-`$env:ENV = 'development'
-`$env:API_KEYS = 'dev-key'
-`$env:CORS_ORIGINS = '$corsOrigins'
-`$env:LOG_FORMAT = 'text'
 `$env:LLM_STATE_DIR = Join-Path `$env:TEMP 'invoice-llm'
 .venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8001
 "@

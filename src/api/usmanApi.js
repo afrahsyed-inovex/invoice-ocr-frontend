@@ -6,22 +6,28 @@ import { requestJson } from './httpClient';
 
 const log = createLogger('api:usman');
 
-/** POST /v1/extract — uploads one file and resolves with the normalized invoice and raw JSON. */
-export async function extractInvoice(file, { signal } = {}) {
+/** His ?llm= values (app/api/extract.py: LlmMode). */
+export const LLM_MODES = ['auto', 'always', 'off'];
+
+/**
+ * POST /v1/extract — uploads one file and resolves with the normalized invoice and raw JSON.
+ * `llmMode` sets ?llm=; empty leaves it out, so his backend uses LLM_MODE from its .env.
+ */
+export async function extractInvoice(file, { signal, llmMode = USMAN_API.llmMode } = {}) {
   const formData = new FormData();
   formData.append(USMAN_API.fileFieldName, file, file.name);
 
   log.info('Request sent', {
     path: USMAN_API.paths.extract,
     file: { name: file.name, type: file.type || 'unknown', sizeBytes: file.size },
-    llm: USMAN_API.llmMode || 'backend default',
+    llm: llmMode || 'backend default',
   });
 
   const raw = await requestJson(USMAN_API, {
     method: 'POST',
     path: USMAN_API.paths.extract,
     data: formData,
-    params: USMAN_API.llmMode ? { llm: USMAN_API.llmMode } : undefined,
+    params: llmMode ? { llm: llmMode } : undefined,
     headers: USMAN_API.apiKey ? { 'X-API-Key': USMAN_API.apiKey } : undefined,
     signal,
   });
